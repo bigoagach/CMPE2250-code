@@ -138,9 +138,9 @@ SClockVals MilliTimeConvert(unsigned long ms)
   //hundredths of seconds, seconds, minutes, hours,
   //and days, using division and modulus division
   time.thow = ms % 1000;
-  time.seconds = (char)(ms / 1000);
-  time.minutes = (char)(ms / (1000 * 60));
-  time.hours = (char)(ms / 1000 / 3600);
+  time.seconds = (char)(ms / 1000 % 60);
+  time.minutes = (char)(ms / 1000 / 60 % 60);
+  time.hours = (char)(ms / 1000 / 3600 % 24);
   time.days = ms / 1000 / 3600 / 24;
 
   //return the newly convert time
