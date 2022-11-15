@@ -39,8 +39,6 @@ void PrintLetters(unsigned char start, UpperOrLower mode);
 /********************************************************************/
 // Global Variables
 /********************************************************************/
-//character received
-volatile unsigned char received;
 //uppercase or lowercase
 UpperOrLower letterMode = Lower;
 /********************************************************************/
@@ -63,7 +61,7 @@ void main(void)
   //20[MHz] (50[ns]) clock speed
   Clock_Set20MHZ();
   //Setting up PIT to coodrdinate and control elements of program, 50[us]
-  PIT_Init(PIT_Channel_0, PIT_Interrupt_On, 20E6, 50);
+  (void)PIT_Init(PIT_Channel_0, PIT_Interrupt_On, 20E6, 50);
   //starting up SCI with 9600 BAUD, interrupts off
   (void)sci0_Init(20E6, 9600, 0);
   //setting up LCD and Switch/LEDs
@@ -75,6 +73,8 @@ void main(void)
   for (;;)
   {
     asm wai;
+
+    // sci0_txByte('A');
   }                   
 }
 
@@ -85,16 +85,15 @@ void PrintLetters(unsigned char start, UpperOrLower mode)
 {
   int i;
   if(!mode) {
-    for(i = start; i < 'z' + 1, i++) 
+    for(i = 'a'; i < 'z' + 1; i++) 
       sci0_txByte((unsigned char)i);
     sci0_txStr(nextLine);
   }
   else {
-    for(i = start - 32; i < 'Z' + 1, i++) 
+    for(i = start - 32; i < 'Z' + 1; i++) 
       sci0_txByte((unsigned char)i);
     sci0_txStr(nextLine);
   }
-
 }
 /********************************************************************/
 // Interrupt Service Routines
@@ -105,13 +104,15 @@ interrupt VectorNumber_Vpit0 void PIT0Int (void)
   static volatile unsigned int count = 0;
   //starting letter, initialized to 'a'
   unsigned char startingPoint = 'a';
+  //character received
+  unsigned char received;
 
   // clear flag
   PITTF = PITTF_PTF0_MASK; // can't read - clears other flags, write only
 
-  // take action!
+  //take action!
   count++;
-  if(count = 20000) {
+  if(count == 20000) {
     //toggle the from uppercase to lowercase or lowercase to uppercase
     letterMode ^= 1; 
     //reset count
@@ -126,6 +127,5 @@ interrupt VectorNumber_Vpit0 void PIT0Int (void)
   }
 
   //print alphabet
-  PrintLetters(startingPoint, letterMode);
-
+  PrintLetters('a', letterMode);
 }
