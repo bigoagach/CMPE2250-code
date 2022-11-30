@@ -35,18 +35,31 @@ typedef enum UpperOrLower { Lower, Upper } UpperOrLower;
 // Local Prototypes
 /********************************************************************/
 //prints the letters onto the terminal
-void PrintLetters(unsigned char start, UpperOrLower mode);
+void PrintLetters(unsigned char start);
+//displaying the number of characters sent on the lower line of
+//the seven segment and the number of main loop iterations on the
+//upper line of the seven segment; both values in HEX; 
+void PrintSegmentInfo(void);
+//displaying loop to character ratio and the character sent
+void PrintLCDInfo(unsigned char receivedChar);
 /********************************************************************/
 // Global Variables
 /********************************************************************/
 //uppercase or lowercase
-UpperOrLower letterMode = Lower;
+volatile UpperOrLower letterMode = Lower;
+//flag to allow lcd update
+volatile char flag;
+//current letter
+unsigned char letter = 'a';
+//number of characters sent
+unsigned long numOfChars = 0;
+//number of main loop interations
+unsigned long mainLoops = 0;
 /********************************************************************/
 // Constants
 /********************************************************************/
 //escape sequence for moving cursor to next line (cursor down)
-char const nextLine[] = "\x1B[1B";
-//#define StudyCode
+char const nextLine[] = "\r\n";
 /********************************************************************/
 // Main Entry
 /********************************************************************/
@@ -54,266 +67,130 @@ void main(void)
 {
   // main entry point
   _DISABLE_COP();
-  //EnableInterrupts;
+  EnableInterrupts;
   
   /********************************************************************/
   // initializations
   /********************************************************************/
   //20[MHz] (50[ns]) clock speed
   Clock_Set20MHZ();
-  //Setting up PIT to coodrdinate and control elements of program, 50[us]
-  //(void)PIT_Init(PIT_Channel_0, PIT_Interrupt_On, 20E6, 50);
+  //Setting up PIT to coodrdinate and control elements of program, 100[ms]
+  (void)PIT_Init(PIT_Channel_0, PIT_Interrupt_On, 20E6, 100000);
   //starting up SCI with 9600 BAUD, interrupts off
-  //(void)sci0_Init(20E6, 9600, 0);
-  SCI0BD = 130;
-  SCI0CR2 = 0b00001100;
-  //setting up LCD and Switch/LEDs
+  (void)sci0_Init(20E6, 9600, 0);
+  //setting up LCD, Switches/LEDs, and SevSeg
   lcd_Init();
+  lcd_DispControl(0, 0);
   SwLED_Init();
+  SevSeg_Init();
   /********************************************************************/
   // main program loop
   /********************************************************************/
+  lcd_StringXY(0, 0, "Loops/Chars Ratio:");
+  lcd_StringXY(3, 0, "RX: x :");
+
   for (;;)
   {
-    //asm wai;
+    //starting letter, initialized to 'a'
+    static unsigned char startingPoint = 'a';
+    //character received
+    static unsigned char received;
 
-    sci0_txByte('A');
+    //check for received characters
+    if(sci0_read(&received)) {
+      //if user types an alphabetic character
+      if(received >= 'a' && received <= 'z')
+        startingPoint = received;
+      if(received >= 'A' && received <= 'Z')
+        startingPoint = received + 32;
+      LED_Tog(LED_RED);
+    }
+
+    mainLoops++;
+
+    //print alphabet and increment
+    PrintLetters(startingPoint);
+
+    //display counts of sevseg
+    PrintSegmentInfo();
+
+    //updating the lcd every 500[ms]
+    if(flag) {
+      PrintLCDInfo(received);
+      flag = 0;
+    }
   }                   
 }
 
 /********************************************************************/
 // Functions
 /********************************************************************/
-void PrintLetters(unsigned char start, UpperOrLower mode) 
+void PrintLetters(unsigned char start) 
 {
-  int i;
-  if(!mode) {
-    for(i = 'a'; i < 'z' + 1; i++) 
-      sci0_txByte((unsigned char)i);
-    sci0_txStr(nextLine);
+  if(letter > 'z') {          //wrapping letter value count at 'z'
+    letter = start;           //reseting letter value count
+    sci0_txStr(nextLine);     //moving cursor to the next line
   }
-  else {
-    for(i = start - 32; i < 'Z' + 1; i++) 
-      sci0_txByte((unsigned char)i);
-    sci0_txStr(nextLine);
+
+  if(!letterMode) {           //if the letter mode is "Lower"
+    if(sci0_txNonByte(letter)) { //displaying current character
+      numOfChars++;
+      letter++;
+    }
   }
+  else {                      //if the letter mode is "Upper"
+    if(sci0_txNonByte(letter - 32)) { //displaying current character
+      numOfChars++;
+      letter++;
+    }
+  }
+  
+}
+
+void PrintSegmentInfo(void) 
+{
+  SevSeg_Bot4((unsigned int)numOfChars);
+  SevSeg_Top4((unsigned int)mainLoops);
+}
+
+void PrintLCDInfo(unsigned char receivedChar) 
+{
+  //displaying the received character on the last line of the lcd 
+  { char display[21];
+    (void)sprintf(display, "%2X", receivedChar);
+    lcd_StringXY(3, 8, display); }
+  //displaying the loop to chars ratio on the second line of the lcd
+  //the ratio is around 16.2~ but the ratio will drastically change
+  //when the mainLoop count reaches past 2^32 - 1 and wraps back to 0
+  { char display[21];
+    (void)sprintf(display, "%04.2f", (float)mainLoops / numOfChars);
+    lcd_StringXY(1, 0, display); }
 }
 /********************************************************************/
 // Interrupt Service Routines
 /********************************************************************/
-// interrupt VectorNumber_Vpit0 void PIT0Int (void)
-// {
-//   //counts to 1 second
-//   static volatile unsigned int count = 0;
-//   //starting letter, initialized to 'a'
-//   unsigned char startingPoint = 'a';
-//   //character received
-//   unsigned char received;
-
-//   // clear flag
-//   PITTF = PITTF_PTF0_MASK; // can't read - clears other flags, write only
-
-//   // //take action!
-//   // count++;
-//   // if(count == 20000) {
-//   //   //toggle the from uppercase to lowercase or lowercase to uppercase
-//   //   letterMode ^= 1; 
-//   //   //reset count
-//   //   count = 0;
-//   // }
-
-//   // if(sci0_read(&received)) {
-//   //   //if user types aan alphabetic character
-//   //   if((received >= 'A' && received <= 'Z') || (received >= 'a' && received <= 'z'))
-//   //     startingPoint = received;
-//   //   LED_Tog(LED_RED);
-//   // }
-
-//   // //print alphabet
-//   // PrintLetters('a', letterMode);
-// }
-
-#ifdef StudyCode
-
-/*
-
-ICA 07
-
-Thomas Feraco
-CMPE 2550 Fall 2022
-
-*/
-
-/********************************************************************/
-
-/********************************************************************/
-// Library includes
-/********************************************************************/
-// your includes go here
-
-#include /* common defines and macros */
-#include "derivative.h" /* derivative-specific definitions */
-#include "SwLed.h"
-//#include "misc.h"
-#include #include "Clock.h"
-#include "pit.h"
-#include "ECT.h"
-#include "SevSeg.h"
-#include #include "sci.h"
-#include "lcd.h"
-
-/********************************************************************/
-// Local Prototypes
-/********************************************************************/
-
-/********************************************************************/
-// Global Variables
-/********************************************************************/
-
-volatile unsigned short count = 0;
-volatile unsigned short countFlag = 0;
-
-/********************************************************************/
-// Constants
-/********************************************************************/
-
-/********************************************************************/
-// Main Entry
-/********************************************************************/
-
-
-void main(void)
-{
-  unsigned char dInC = 'A';
-  unsigned char dIn = 'A';
-  unsigned char data = 'A';
-  unsigned short offsetAlpha = 0;
-  unsigned char startAlpha = 'A';
-
-  count = 0;
-  countFlag = 0;
-
-  // main entry point
-  _DISABLE_COP(); // Stop watchdog
-  EnableInterrupts;
-
-  /********************************************************************/
-  // initializations
-  /********************************************************************/
-  Clock_Set20MHZ(); // set clock to 20MHZ
-
-  Timer_Init(Timer_Prescale_32);
-  //TimerCH_EnableAsOutput(Timer_CH0_BIT);
-  TimerCH_EnableAsOutput(Timer_CH1_BIT); // for sleep_ms
-
-  SwLED_Init();
-  SevSeg_Init();
-  lcd_Init();
-
-  if(PIT_Init (PIT_Channel_0, PIT_Interrupt_On, 20E6, 100000) == 0)
-  {
-    LED_Tog(LED_GREEN);
-  }
-
-  (void)sci0_Init(20E6, 9600, 0);
-
-
-  /********************************************************************/
-  // main program loop
-  /********************************************************************/
-
-
-  /*
-
-  if(startAlpha + offsetAlpha == 'Z' || startAlpha + offsetAlpha == 'z')
-  {
-  offsetAlpha = 0;
-  }
-
-  if(countFlag == 1)
-  {
-  sci0_txByte(startAlpha + offsetAlpha + 32); //32 is offset for lowercase -> uppercase
-  }
-
-  else
-  {
-  sci0_txByte(startAlpha + offsetAlpha);
-  }
-
-  */
-
-  for (;;)
-  {
-    if(countFlag == 1)
-    {
-      sci0_txByte(data+32);
-    }
-
-    else
-    {
-      sci0_txByte(data);
-    }
-
-    if(data == 'Z' || data == 'z')
-    {
-      data = dIn-1;
-      sci0_txStr("\r\n");
-    }
-
-    ++data;
-
-    dInC = dIn;
-    //sci0_txByte('A');
-    //SevSeg_Top4(sci0_bread());
-    if(sci0_read(&dIn) == 1)// good
-    {
-      SevSeg_Top4((int)dIn);
-    }
-
-    if(dIn > 96)
-    {
-      dIn -= 32;
-    }
-
-    if(dIn < 65 || dIn > 90)
-    {
-      dIn = dInC;
-    }
-
-
-
-    ++offsetAlpha;
-  }
-}
-
-/********************************************************************/
-// Functions
-/********************************************************************/
-
-/********************************************************************/
-// Interrupt Service Routines
-/********************************************************************/
-
 interrupt VectorNumber_Vpit0 void PIT0Int (void)
 {
-  LED_Tog(LED_RED);
+  //counts to 1 second
+  static volatile unsigned int count = 0;
 
-  PITTF = PITTF_PTF0_MASK;
+  // clear flag
+  PITTF = PITTF_PTF0_MASK; // can't read - clears other flags, write only
 
-  ++count;
-  if(count >= 10)
-  {
-    if (countFlag == 0)
-    {
-      countFlag = 1;
-      count = 0;
-    }
-    else
-    {
-      countFlag = 0;
-      count = 0;
-    }
+  //take action!
+  count++;
+
+  //when the count reaches 1.00[s]
+  if(count == 10) {
+    //toggle the from uppercase to lowercase or lowercase to uppercase
+    letterMode = letterMode ? Lower : Upper;
+    //reset count
+    count = 0;
+  }
+
+  //when the count reaches 500[ms]
+  if(count % 5 == 0) {
+    //setting flag
+    flag = 1;
   }
 }
-
-#endif
